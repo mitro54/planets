@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 void Renderer::resize(int cols, int rows) {
+    if (cols_ == cols && rows_ == rows) return;
     cols_ = cols;
     rows_ = rows;
     buffer_.assign(rows, std::vector<Cell>(cols));

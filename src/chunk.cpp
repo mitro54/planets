@@ -195,27 +195,40 @@ void ChunkManager::update(double playerX, double playerY, double zoom, int cols,
         for (int64_t dx = -radius; dx <= radius; ++dx)
             needed[{cur.cx + dx, cur.cy + dy}] = true;
 
-    for (auto it = chunks_.begin(); it != chunks_.end(); )
-        if (!needed.count(it->first)) it = chunks_.erase(it);
-        else ++it;
+    bool changed = false;
+    for (auto it = chunks_.begin(); it != chunks_.end(); ) {
+        if (!needed.count(it->first)) {
+            it = chunks_.erase(it);
+            changed = true;
+        } else {
+            ++it;
+        }
+    }
 
-    for (auto& [coord, _] : needed)
-        generateChunk(coord);
+    for (auto& [coord, _] : needed) {
+        if (!chunks_.count(coord)) {
+            generateChunk(coord);
+            changed = true;
+        }
+    }
+
+    if (changed) rebuildCaches();
+}
+
+void ChunkManager::rebuildCaches() {
+    activePlanets_.clear();
+    activeStars_.clear();
+    for (auto& [_, chunk] : chunks_) {
+        for (auto& p : chunk.planets) activePlanets_.push_back(&p);
+        for (auto& s : chunk.stars) activeStars_.push_back(&s);
+    }
 }
 
 const std::vector<Planet*>& ChunkManager::getActivePlanets() {
-    activePlanets_.clear();
-    for (auto& [_, chunk] : chunks_)
-        for (auto& p : chunk.planets)
-            activePlanets_.push_back(&p);
     return activePlanets_;
 }
 
 const std::vector<Star*>& ChunkManager::getActiveStars() {
-    activeStars_.clear();
-    for (auto& [_, chunk] : chunks_)
-        for (auto& s : chunk.stars)
-            activeStars_.push_back(&s);
     return activeStars_;
 }
 

@@ -39,6 +39,7 @@ public:
     int totalPlanets() const;
 
 private:
+    void rebuildCaches();
     void generateChunk(ChunkCoord coord);
     std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> chunks_;
     std::vector<Planet*> activePlanets_;
