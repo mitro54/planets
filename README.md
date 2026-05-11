@@ -41,12 +41,14 @@ make
 | `S` / `↓` | **Thrust (Retrograde):** Automatically thrust opposite to your current velocity vector to brake. |
 | `A` / `←` | **Rotate Left:** Rotate the spacecraft counter-clockwise. |
 | `D` / `→` | **Rotate Right:** Rotate the spacecraft clockwise. |
+| `Q` / `E` | **Thrust + Turn:** Fire engines while simultaneously turning. |
+| `Z` / `C` | **Brake + Turn:** Retrograde braking while simultaneously turning. |
 | `SPACE` | **Emergency Stop:** Instantly zero-out all velocity (debug/cheat). |
 | `T` | **Toggle Trail:** Show/hide the spacecraft's historical orbital trajectory. |
-| `C` | **Clear Trail:** Erase the current trajectory trail. |
+| `X` | **Clear Trail:** Erase the current trajectory trail. |
 | `+` / `=` | **Zoom In:** Scale the camera view closer to the ship. |
 | `-` / `_` | **Zoom Out:** Scale the camera view out to visualize the solar system. |
-| `Q` | **Quit:** Exit the simulator. |
+| `ESC` / `Ctrl+C`| **Quit:** Exit the simulator. |
 
 ## Technical Architecture
 

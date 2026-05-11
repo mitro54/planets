@@ -7,6 +7,15 @@
 
 struct Star { double x, y; };
 
+struct Nebula {
+    double x, y;
+    double radius;
+    const char* color1;
+    const char* color2;
+    const char* color3;
+    char ch;
+};
+
 struct ChunkCoord {
     int64_t cx, cy;
     bool operator==(const ChunkCoord& o) const { return cx == o.cx && cy == o.cy; }
@@ -24,6 +33,7 @@ struct Chunk {
     ChunkCoord coord;
     std::vector<Planet> planets;
     std::vector<Star> stars;
+    std::vector<Nebula> nebulae;
 };
 
 class ChunkManager {
@@ -34,6 +44,7 @@ public:
     void update(double playerX, double playerY, double zoom, int cols, int rows);
     const std::vector<Planet*>& getActivePlanets();
     const std::vector<Star*>& getActiveStars();
+    const std::vector<Nebula*>& getActiveNebulae();
     static ChunkCoord worldToChunk(double wx, double wy);
     size_t loadedCount() const { return chunks_.size(); }
     int totalPlanets() const;
@@ -44,6 +55,7 @@ private:
     std::unordered_map<ChunkCoord, Chunk, ChunkCoordHash> chunks_;
     std::vector<Planet*> activePlanets_;
     std::vector<Star*> activeStars_;
+    std::vector<Nebula*> activeNebulae_;
     ChunkCoord lastPlayerChunk_{INT64_MAX, INT64_MAX};
     int64_t lastRadius_ = 0;
     bool dirty_ = true;

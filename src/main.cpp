@@ -113,7 +113,7 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
     ren.putString(std::max(0, w - (int)fp.size()), 3, fp, C_HUD_VAL + C_HUD_BG);
 
     // Row 4: Controls bar
-    std::string help = " W:Thrust  A/D:Turn  S:Retro  SPACE:Stop  T:Trail  C:Clear  +/-:Zoom  Q:Quit";
+    std::string help = " Q/W/E:Thrust+Turn  A/D:Turn  Z/S/C:Retro+Turn  SPACE:Stop  T:Trail  ESC:Quit";
     ren.putString(0, 4, help, C_HUD_DIM + C_HUD_BG);
 }
 
@@ -170,23 +170,39 @@ int main() {
         int key;
         while ((key = term.readKey()) != Terminal::KEY_NONE) {
             switch (key) {
-                case 'q': case 'Q':
+                case '\033': case '\x03': // ESC or Ctrl+C
                     running = false; break;
+                
+                // Thrust + Combos
                 case 'w': case 'W': case Terminal::KEY_UP:
                     input.thrust = inputNow; break;
+                case 'q': case 'Q':
+                    input.thrust = inputNow; input.rotL = inputNow; break;
+                case 'e': case 'E':
+                    input.thrust = inputNow; input.rotR = inputNow; break;
+                
+                // Retrograde + Combos
                 case 's': case 'S': case Terminal::KEY_DOWN:
                     input.retro = inputNow; break;
+                case 'z': case 'Z':
+                    input.retro = inputNow; input.rotL = inputNow; break;
+                case 'c': case 'C':
+                    input.retro = inputNow; input.rotR = inputNow; break;
+
+                // Pure Turning
                 case 'a': case 'A': case Terminal::KEY_LEFT:
                     input.rotL = inputNow; break;
                 case 'd': case 'D': case Terminal::KEY_RIGHT:
                     input.rotR = inputNow; break;
+                
+                // Utils
                 case ' ':
                     stopPressed = true; break;
                 case 't': case 'T':
                     trailOn = !trailOn;
                     if (!trailOn) trail.clear();
                     break;
-                case 'c': case 'C':
+                case 'x': case 'X':
                     trail.clear(); break;  // clear trail without toggling
                 case '+': case '=': case Terminal::KEY_SCROLL_UP:
                     cam.zoom = std::min(cam.zoom * 1.15, 10.0); break;
@@ -240,6 +256,59 @@ int main() {
         renderer.clear();
 
         int viewH = rows - HUD_ROWS;
+
+        // Nebulae (Background)
+        const auto& nebulae = chunks.getActiveNebulae();
+        for (const Nebula* n : nebulae) {
+            auto sp = cam.worldToScreenRaw(n->x, n->y, cols, viewH);
+            int vr = std::max(0, static_cast<int>(n->radius * cam.zoom / 2.0));
+            if (vr == 0) continue;
+
+            int c = sp.col;
+            int r = sp.row;
+            
+            // Clip perfectly to screen bounds to prevent massive loop overhead
+            int minR = std::max(0, r - vr);
+            int maxR = std::min(viewH - 1, r + vr);
+            int minC = std::max(0, c - vr * 2);
+            int maxC = std::min(cols - 1, c + vr * 2);
+
+            for (int rr = minR; rr <= maxR; ++rr) {
+                for (int cc = minC; cc <= maxC; ++cc) {
+                    int dr = rr - r;
+                    int dc = cc - c;
+                    double nd = std::sqrt(dr*dr*4.0 + dc*dc*1.0) / (vr*2.0);
+                    if (nd <= 1.0) {
+                        // Smooth radial falloff combined with simple static noise
+                        double falloff = 1.0 - nd;
+                        falloff = falloff * falloff * falloff; // sharp exponential dropoff
+
+                        // Screen-space noise creates a shimmering effect as camera moves
+                        uint64_t h = static_cast<uint64_t>(cc * 31) ^ static_cast<uint64_t>(rr * 73);
+                        
+                        // Map screen coords to world coords to create slow, static color veins
+                        double wx = n->x + dc * (1.0 / cam.zoom);
+                        double wy = n->y + dr * (2.0 / cam.zoom);
+                        int colorBlockX = static_cast<int>(std::floor(wx / 100.0));
+                        int colorBlockY = static_cast<int>(std::floor(wy / 100.0));
+                        uint64_t chash = static_cast<uint64_t>(colorBlockX * 73856) ^ static_cast<uint64_t>(colorBlockY * 19349);
+                        
+                        // Pick a stunning color based on distance and spatial hash (core -> veins -> fringes)
+                        const char* drawColor = n->color3; // dark outer fringes
+                        if (nd < 0.25) {
+                            drawColor = n->color1; // bright hot core
+                        } else if ((chash % 100) > 50) {
+                            drawColor = n->color2; // vibrant mid-tone veins
+                        }
+
+                        // Only draw if noise passes the falloff threshold
+                        if ((h % 100) / 100.0 < falloff * 0.7) {
+                            renderer.putChar(cc, rr + HUD_ROWS, n->ch, drawColor);
+                        }
+                    }
+                }
+            }
+        }
 
         // Stars
         const auto& stars = chunks.getActiveStars();

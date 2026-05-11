@@ -163,6 +163,47 @@ void ChunkManager::generateChunk(ChunkCoord coord) {
         chunk.stars.push_back(s);
     }
 
+    // Nebulae: Rare (5% chance) and smaller localized gas clouds
+    std::uniform_int_distribution<int> nebChance(0, 100);
+    if (nebChance(rng) > 95) {
+        Nebula n;
+        n.x = baseX + posDist(rng);
+        n.y = baseY + posDist(rng);
+        n.radius = std::uniform_real_distribution<double>(300.0, 800.0)(rng);
+        
+        const char* colorsBright[] = {
+            "\033[1;36m",     // bright cyan
+            "\033[1;35m",     // bright magenta
+            "\033[38;5;82m",  // bright neon green
+            "\033[38;5;226m", // bright yellow
+            "\033[38;5;208m"  // bright orange
+        };
+        const char* colorsMid[] = {
+            "\033[38;5;33m",  // deep bright blue
+            "\033[38;5;90m",  // deep magenta
+            "\033[38;5;28m",  // deep green
+            "\033[38;5;124m", // deep red
+            "\033[38;5;55m"   // deep purple
+        };
+        const char* colorsDark[] = {
+            "\033[38;5;17m",  // very dark blue
+            "\033[38;5;53m",  // very dark purple
+            "\033[38;5;22m",  // very dark green
+            "\033[38;5;52m",  // very dark red
+            "\033[38;5;235m"  // almost black/gray
+        };
+        
+        std::uniform_int_distribution<int> cDist(0, 4);
+        n.color1 = colorsBright[cDist(rng)];
+        n.color2 = colorsMid[cDist(rng)];
+        n.color3 = colorsDark[cDist(rng)];
+        
+        const char chars[] = {'.', ',', '`', '\'', ':'};
+        std::uniform_int_distribution<int> charC(0, 4);
+        n.ch = chars[charC(rng)];
+        chunk.nebulae.push_back(n);
+    }
+
     chunks_[coord] = std::move(chunk);
 }
 
@@ -218,9 +259,11 @@ void ChunkManager::update(double playerX, double playerY, double zoom, int cols,
 void ChunkManager::rebuildCaches() {
     activePlanets_.clear();
     activeStars_.clear();
+    activeNebulae_.clear();
     for (auto& [_, chunk] : chunks_) {
         for (auto& p : chunk.planets) activePlanets_.push_back(&p);
         for (auto& s : chunk.stars) activeStars_.push_back(&s);
+        for (auto& n : chunk.nebulae) activeNebulae_.push_back(&n);
     }
 }
 
@@ -230,6 +273,10 @@ const std::vector<Planet*>& ChunkManager::getActivePlanets() {
 
 const std::vector<Star*>& ChunkManager::getActiveStars() {
     return activeStars_;
+}
+
+const std::vector<Nebula*>& ChunkManager::getActiveNebulae() {
+    return activeNebulae_;
 }
 
 int ChunkManager::totalPlanets() const {
