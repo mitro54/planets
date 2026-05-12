@@ -17,11 +17,11 @@
 enum class GameState { ORBIT, LANDING, WORMHOLE_CUTSCENE, GAME_OVER };
 
 // ─── Colors ──────────────────────────────────────────────────
-static const std::string C_HUD_LBL = "\033[1;37m";
-static const std::string C_HUD_VAL = "\033[1;33m";
-static const std::string C_HUD_HDR = "\033[1;36m";
-static const std::string C_HUD_BG  = "\033[48;5;234m";
-static const std::string C_HUD_DIM = "\033[38;5;245m";
+static const std::string C_HUD_LBL = "\033[38;5;39m";   // electric blue labels
+static const std::string C_HUD_VAL = "\033[38;5;159m";  // soft cyan values
+static const std::string C_HUD_HDR = "\033[1;38;5;214m"; // gold header
+static const std::string C_HUD_BG  = "\033[48;5;232m";  // near-black background
+static const std::string C_HUD_DIM = "\033[38;5;238m";  // deep grey
 static const std::string C_STAR    = "\033[38;5;240m";
 static const std::string C_STAR_BR = "\033[38;5;250m";
 static const std::string C_SHIP    = "\033[1;34m";       // bold blue
@@ -136,41 +136,45 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
         for (int c = 0; c < w; ++c)
             ren.putChar(c, r, ' ', C_HUD_BG);
 
+    // Top stylized border
+    for (int c = 0; c < w; ++c) ren.putString(c, 0, "\xE2\x96\x80", "\033[38;5;235m" + C_HUD_BG);
+
     // Row 0: Title (centered)
-    std::string title = " SPACE FLIGHT ENGINE ";
+    std::string title = " P L A N E T S ";
     ren.putString(std::max(0, (w - (int)title.size()) / 2), 0, title, C_HUD_HDR + C_HUD_BG);
 
-    // Row 1: Position + Velocity
-    std::string pos = " X:" + fmt("%.1f", ship.x) + " Y:" + fmt("%.1f", ship.y);
-    ren.putString(0, 1, pos, C_HUD_LBL + C_HUD_BG);
-    std::string vel = "Vx:" + fmt("%.2f", ship.vx) + " Vy:" + fmt("%.2f", ship.vy) + " km/s ";
-    ren.putString(std::max(0, w - (int)vel.size()), 1, vel, C_HUD_LBL + C_HUD_BG);
-
-    // Row 2: Speed + Angle + Fuel
-    double spd = Physics::speed(ship);
-    double deg = ship.angle * 180.0 / M_PI;
-    std::string r2 = " SPD:" + fmt("%.1f", spd) + " km/s  ANG:" + fmt("%.0f", deg) + "\xC2\xB0";
+    // Row 1: Position (Left) + Velocity (Right)
+    ren.putString(0, 1, " X:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(3, 1, fmt("%.1f", ship.x), C_HUD_VAL + C_HUD_BG);
+    ren.putString(12, 1, " Y:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(15, 1, fmt("%.1f", ship.y), C_HUD_VAL + C_HUD_BG);
     
-    // Fuel gauge (split-color: orange bars, dim empty)
-    int fuelBars = static_cast<int>((ship.fuel / ship.maxFuel) * 10.0);
-    std::string fuelLabel = "  FUEL:";
-    r2 += fuelLabel;
-    ren.putString(0, 2, r2, C_HUD_VAL + C_HUD_BG);
-    int fuelStartCol = (int)r2.size();
-    // Determine fuel bar color based on level
-    std::string fuelColor = (fuelBars > 6) ? "\033[38;5;208m" : (fuelBars > 3) ? "\033[38;5;214m" : "\033[1;31m";
-    std::string emptyColor = "\033[38;5;240m";
-    ren.putChar(fuelStartCol, 2, '[', C_HUD_VAL + C_HUD_BG);
-    for (int i = 0; i < 10; ++i) {
-        if (i < fuelBars)
-            ren.putChar(fuelStartCol + 1 + i, 2, '|', fuelColor + C_HUD_BG);
-        else
-            ren.putChar(fuelStartCol + 1 + i, 2, '.', emptyColor + C_HUD_BG);
-    }
-    ren.putChar(fuelStartCol + 11, 2, ']', C_HUD_VAL + C_HUD_BG);
+    std::string vxStr = fmt("%.2f", ship.vx) + " km/s";
+    std::string vyStr = fmt("%.2f", ship.vy) + " km/s";
+    ren.putString(w - 28, 1, "Vx:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(w - 24, 1, vxStr, C_HUD_VAL + C_HUD_BG);
+    ren.putString(w - 14, 1, "Vy:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(w - 10, 1, vyStr, C_HUD_VAL + C_HUD_BG);
 
-    std::string zm = "ZOOM:" + fmt("%.2f", cam.zoom) + "x ";
-    ren.putString(std::max(0, w - (int)zm.size()), 2, zm, C_HUD_VAL + C_HUD_BG);
+    // Row 2: Orientation + Fuel (Left) + FPS (Right)
+    double deg = ship.angle * 180.0 / M_PI;
+    ren.putString(0, 2, " ANG:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(5, 2, fmt("%.0f", deg) + "\xC2\xB0", C_HUD_VAL + C_HUD_BG);
+    
+    int fuelBars = static_cast<int>((ship.fuel / ship.maxFuel) * 10.0);
+    ren.putString(12, 2, " FUEL:", C_HUD_LBL + C_HUD_BG);
+    std::string fuelColor = (fuelBars > 6) ? "\033[38;5;46m" : (fuelBars > 3) ? "\033[38;5;226m" : "\033[1;31m";
+    std::string emptyColor = "\033[38;5;240m";
+    ren.putString(18, 2, "[", C_HUD_LBL + C_HUD_BG);
+    for (int i = 0; i < 10; ++i) {
+        if (i < fuelBars) ren.putChar(19 + i, 2, '|', fuelColor + C_HUD_BG);
+        else              ren.putChar(19 + i, 2, '.', emptyColor + C_HUD_BG);
+    }
+    ren.putString(29, 2, "]", C_HUD_LBL + C_HUD_BG);
+
+    std::string fpVal = fmt("%.0f", fps);
+    ren.putString(w - 10, 2, "FPS:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(w - 5, 2, fpVal, C_HUD_VAL + C_HUD_BG);
 
     // Add state indicator to row 0 if not ORBIT
     if (state == GameState::LANDING) {
@@ -182,19 +186,23 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
     } else if (canLand) {
         ren.putString(0, 0, " >>> PRESS L TO LAND <<< ", "\033[1;32m" + C_HUD_BG);
     } else if (!simulationStarted && state == GameState::ORBIT) {
-        ren.putString(0, 0, " [AWAITING INPUT - PRESS ANY THRUST KEY TO ENGAGE] ", "\033[1;36m" + C_HUD_BG);
+        ren.putString(0, 0, " [SYSTEMS OFFLINE - PRESS ANY THRUST KEY TO ENGAGE] ", "\033[1;36m" + C_HUD_BG);
     }
 
-    // Row 3: Chunk + Gravity + Trail
-    auto cc = ChunkManager::worldToChunk(ship.x, ship.y);
-    double gForce = nearestGrav / 1.0; // 1.0 km/s² is our baseline "1G"
-    std::string r3 = " CHUNK:[" + fmtI(cc.cx) + "," + fmtI(cc.cy) + "]"
-                   + " GRAV:" + fmt("%.2f", nearestGrav) + "km/s\xC2\xB2 (" + fmt("%.1f", gForce) + "G)"
-                   + " PLANETS:" + std::to_string(chunks.totalPlanets())
-                   + (trailOn ? " [TRAIL]" : "");
-    ren.putString(0, 3, r3, C_HUD_LBL + C_HUD_BG);
-    std::string fp = "FPS:" + fmt("%.0f", fps) + " ";
-    ren.putString(std::max(0, w - (int)fp.size()), 3, fp, C_HUD_VAL + C_HUD_BG);
+    // Row 3: Speed + Gravity (Left) + Zoom (Right)
+    double spd = Physics::speed(ship);
+    double nearestG = nearestGrav / 1.0; 
+    
+    ren.putString(0, 3, " SPD:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(5, 3, fmt("%.1f", spd) + " km/s", C_HUD_VAL + C_HUD_BG);
+    
+    ren.putString(18, 3, " GRAV:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(24, 3, fmt("%.2f", nearestGrav) + " km/s\xC2\xB2", C_HUD_VAL + C_HUD_BG);
+    ren.putString(35, 3, " (" + fmt("%.1f", nearestG) + "G)", C_HUD_DIM + C_HUD_BG);
+
+    std::string zmVal = fmt("%.2f", cam.zoom) + "x";
+    ren.putString(w - 11, 3, "ZOOM:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(w - 5, 3, zmVal, C_HUD_VAL + C_HUD_BG);
 
     // Row 4: Controls bar (context-sensitive)
     if (state == GameState::LANDING) {
@@ -225,7 +233,7 @@ int main() {
 
     Renderer renderer;
     Camera cam;
-    cam.zoom = 0.5;
+    cam.zoom = 0.01;
 
     Entity ship;
     std::mt19937_64 startupRng(std::chrono::steady_clock::now().time_since_epoch().count());
