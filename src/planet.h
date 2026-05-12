@@ -20,4 +20,6 @@ struct Planet {
     std::string ringColor;
     double ringWidth = 0.0;     // extra radius beyond planet for ring
     std::vector<Moon> moons;
+    bool isBlackHole = false;   // wormhole
+    std::string id;             // unique identifier based on coordinates
 };

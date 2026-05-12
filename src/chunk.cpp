@@ -80,8 +80,8 @@ void ChunkManager::generateChunk(ChunkCoord coord) {
         
         std::uniform_real_distribution<double> radDist(tmpl.minRadius, tmpl.maxRadius);
         p.radius = radDist(rng);
-        // Mass = Density * Volume. (Scale by 0.02 so GAME_G=40.0 works perfectly)
-        p.mass = tmpl.density * p.radius * p.radius * p.radius * 0.02;
+        // Mass = Density * Volume. (Scale by 0.004 so GAME_G=40.0 works perfectly)
+        p.mass = tmpl.density * p.radius * p.radius * p.radius * 0.004;
 
         // Try to place without overlap
         for (int attempts = 0; attempts < 15; ++attempts) {
@@ -147,6 +147,21 @@ void ChunkManager::generateChunk(ChunkCoord coord) {
                 moon.color = moonColors[mc(rng)];
                 p.moons.push_back(moon);
             }
+        }
+
+        p.id = std::to_string(static_cast<int64_t>(p.x)) + "_" + std::to_string(static_cast<int64_t>(p.y));
+
+        // 5% chance to be a Black Hole
+        std::uniform_int_distribution<int> bhChance(0, 100);
+        if (bhChance(rng) < 5) {
+            p.isBlackHole = true;
+            p.radius = p.radius * 0.5; // Event horizon is smaller
+            p.mass = p.mass * 100.0; // Extreme gravity
+            p.symbol = ' '; // Void
+            p.hasRings = true;
+            p.ringWidth = p.radius * 2.0; // Accretion disk
+            p.ringColor = "\033[1;35m"; // Bright magenta accretion disk
+            p.moons.clear(); // Black holes consume moons!
         }
 
         chunk.planets.push_back(p);
