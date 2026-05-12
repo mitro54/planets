@@ -665,7 +665,7 @@ int main() {
             // ─── Special: Black Hole / Wormhole Rendering ───
             if (p->isBlackHole) {
                 int vr = std::max(0, static_cast<int>(p->radius * cam.zoom / 2.0));
-                int rOut = std::max(vr + 1, static_cast<int>((p->radius + p->ringWidth) * cam.zoom / 2.0));
+                int rOut = std::max<long long>(vr + 1, static_cast<int>((p->radius + p->ringWidth) * cam.zoom / 2.0));
                 
                 if (rOut < 1) {
                     // Far away: just a tiny swirling point
