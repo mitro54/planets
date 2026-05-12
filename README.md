@@ -2,8 +2,6 @@
 
 ![pic2](assets/pic2.png)
 
-![pic3](assets/pic3.png)
-
 A high-performance, purely terminal-based 2D space flight simulator and physics engine written entirely in C++20 from scratch. This project features a procedurally generated infinite universe, realistic orbital mechanics, and a custom raw-mode terminal renderer capable of running smoothly at 60 FPS without any external graphical libraries (no SDL, OpenGL, or Raylib).
 
 The engine is designed as a foundational playground for realistic Newtonian space flight and is architected to eventually serve as a headless Gym-style environment for Reinforcement Learning (RL) agents.
