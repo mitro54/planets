@@ -2,11 +2,11 @@
 
 ![pic2](assets/pic2.png)
 
+![pic3](assets/pic3.png)
+
 A high-performance, purely terminal-based 2D space flight simulator and physics engine written entirely in C++20 from scratch. This project features a procedurally generated infinite universe, realistic orbital mechanics, and a custom raw-mode terminal renderer capable of running smoothly at 60 FPS without any external graphical libraries (no SDL, OpenGL, or Raylib).
 
 The engine is designed as a foundational playground for realistic Newtonian space flight and is architected to eventually serve as a headless Gym-style environment for Reinforcement Learning (RL) agents.
-
-![pic3](assets/pic3.png)
 
 ## Features
 
@@ -59,8 +59,6 @@ make
 | `-` / `_` | **Zoom Out:** Scale the camera view out to visualize the solar system. |
 | `ESC` / `Ctrl+C`| **Quit:** Exit the simulator. |
 
-![pic1](assets/pic1.png)
-
 ## Technical Architecture
 
 * **Renderer (`src/renderer.*`):** A custom frame buffer that parses world coordinates into discrete terminal cells, handling Z-indexing (drawing planets over rings, etc.) and optimizing output streams to prevent terminal tearing.
@@ -72,3 +70,5 @@ make
 1. **Spatial Partitioning (Quadtrees):** Optimize collision and gravity calculations for massively dense star clusters.
 2. **Headless RL API Integration:** Expose the engine state matrix via a decoupled API so the simulation can be stepped artificially fast, allowing an AI agent to learn how to achieve stable orbits.
 3. **Orbital Visualizations:** Real-time mathematical prediction of Apoapsis and Periapsis lines.
+
+![pic1](assets/pic1.png)
