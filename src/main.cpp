@@ -182,7 +182,7 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
     } else if (canLand) {
         ren.putString(0, 0, " >>> PRESS L TO LAND <<< ", "\033[1;32m" + C_HUD_BG);
     } else if (!simulationStarted && state == GameState::ORBIT) {
-        ren.putString(0, 0, " [SYSTEMS OFFLINE - PRESS ANY THRUST KEY TO ENGAGE] ", "\033[1;36m" + C_HUD_BG);
+        ren.putString(0, 0, " [AWAITING INPUT - PRESS ANY THRUST KEY TO ENGAGE] ", "\033[1;36m" + C_HUD_BG);
     }
 
     // Row 3: Chunk + Gravity + Trail
