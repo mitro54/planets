@@ -36,9 +36,6 @@ static constexpr int HUD_ROWS = 5;
 static std::string fmt(const char* f, double v) {
     char buf[64]; std::snprintf(buf, sizeof(buf), f, v); return buf;
 }
-static std::string fmtI(int64_t v) {
-    char buf[32]; std::snprintf(buf, sizeof(buf), "%lld", (long long)v); return buf;
-}
 
 // ─── Key-hold detection ─────────────────────────────────────
 using Clock = std::chrono::steady_clock;
@@ -129,8 +126,8 @@ static bool isWaterAt(double worldX, uint64_t seed) {
 
 // ─── HUD ─────────────────────────────────────────────────────
 static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
-                    const ChunkManager& chunks, double nearestGrav, double fps,
-                    bool trailOn, GameState state, bool canLand, bool simulationStarted) {
+                    double nearestGrav, double fps, GameState state, 
+                    bool canLand, bool simulationStarted) {
     int w = ren.getCols();
     for (int r = 0; r < HUD_ROWS && r < ren.getRows(); ++r)
         for (int c = 0; c < w; ++c)
@@ -186,7 +183,7 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
     } else if (canLand) {
         ren.putString(0, 0, " >>> PRESS L TO LAND <<< ", "\033[1;32m" + C_HUD_BG);
     } else if (!simulationStarted && state == GameState::ORBIT) {
-        ren.putString(0, 0, " [SYSTEMS OFFLINE - PRESS ANY THRUST KEY TO ENGAGE] ", "\033[1;36m" + C_HUD_BG);
+        ren.putString(0, 0, " [AWAITING USER.. PRESS ANY THRUST KEY TO START] ", "\033[1;36m" + C_HUD_BG);
     }
 
     // Row 3: Speed + Gravity (Left) + Zoom (Right)
@@ -221,7 +218,7 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
         std::string spdWarnColor = (totalSpd > 5.0) ? "\033[1;31m" : (totalSpd > 3.0) ? "\033[1;33m" : "\033[1;32m";
         ren.putString(0, 4, landHelp, spdWarnColor + C_HUD_BG);
     } else {
-        std::string help = " Q/W/E:Thrust+Turn  A/D:Turn  Z/S/C:Retro+Turn  SPACE:Stop  T:Trail  L:Land  ESC:Quit";
+        std::string help = " W:Thrust  A/D:Turn  S:Retro(Brake)  SPACE:Emergency Stop  T:Trail  L:Land  ESC:Quit";
         ren.putString(0, 4, help, C_HUD_DIM + C_HUD_BG);
     }
 }
@@ -868,7 +865,7 @@ int main() {
                 }
             }
         }
-        drawHUD(renderer, ship, cam, chunks, nearestGrav, currentFps, trailOn, state, canLand, simulationStarted);
+        drawHUD(renderer, ship, cam, nearestGrav, currentFps, state, canLand, simulationStarted);
         renderer.flush();
 
         // Frame limit

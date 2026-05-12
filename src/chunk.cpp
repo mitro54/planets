@@ -80,8 +80,8 @@ void ChunkManager::generateChunk(ChunkCoord coord) {
         
         std::uniform_real_distribution<double> radDist(tmpl.minRadius, tmpl.maxRadius);
         p.radius = radDist(rng);
-        // Mass = Density * Volume. (Scale by 0.02 so GAME_G=40.0 works perfectly)
-        p.mass = tmpl.density * p.radius * p.radius * p.radius * 0.02;
+        // Mass = Density * Volume. (Scale by 0.004 so GAME_G=40.0 works perfectly)
+        p.mass = tmpl.density * p.radius * p.radius * p.radius * 0.004;
 
         // Try to place without overlap
         for (int attempts = 0; attempts < 15; ++attempts) {
