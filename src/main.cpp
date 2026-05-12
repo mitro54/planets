@@ -86,7 +86,7 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
 
     // Row 0: Title (centered)
     std::string title = " SPACE FLIGHT ENGINE ";
-    ren.putString(std::max(0, (w - (int)title.size()) / 2), 0, title, C_HUD_HDR + C_HUD_BG);
+    ren.putString(std::max<long long>(0, (w - (int)title.size()) / 2), 0, title, C_HUD_HDR + C_HUD_BG);
 
     // Row 1: Position + Velocity
     std::string pos = " X:" + fmt("%.1f", ship.x) + " Y:" + fmt("%.1f", ship.y);
@@ -269,8 +269,8 @@ int main() {
             
             // Clip perfectly to screen bounds to prevent massive loop overhead
             int minR = std::max(0, r - vr);
-            int maxR = std::min(viewH - 1, r + vr);
-            int minC = std::max(0, c - vr * 2);
+            int maxR = std::min<long long>(viewH - 1, r + vr);
+            int minC = std::max<long long>(0, c - vr * 2);
             int maxC = std::min(cols - 1, c + vr * 2);
 
             for (int rr = minR; rr <= maxR; ++rr) {
@@ -361,11 +361,11 @@ int main() {
             // Back half of rings
             int rOut = 0;
             if (p->hasRings) {
-                rOut = std::max(vr + 1, static_cast<int>((p->radius + p->ringWidth) * cam.zoom / 2.0));
+                rOut = std::max<long long>(vr + 1, static_cast<int>((p->radius + p->ringWidth) * cam.zoom / 2.0));
                 for (int dr = -rOut; dr < 0; ++dr) {
                     for (int dc = -rOut * 2; dc <= rOut * 2; ++dc) {
                         double nd = std::sqrt(dr*dr*16.0 + dc*dc*1.0) / (rOut * 2.0);
-                        double ni = std::sqrt(dr*dr*16.0 + dc*dc*1.0) / (std::max(1, vr) * 2.0);
+                        double ni = std::sqrt(dr*dr*16.0 + dc*dc*1.0) / (std::max<long long>(1, vr) * 2.0);
                         if (nd <= 1.0 && ni > 1.0) {
                             if (rOut < 4 || (dr + dc) % 2 == 0) { // Solid if small, dashed if large
                                 renderer.putChar(c + dc, r + dr, '=', p->ringColor);
@@ -397,7 +397,7 @@ int main() {
                 for (int dr = 0; dr <= rOut; ++dr) {
                     for (int dc = -rOut * 2; dc <= rOut * 2; ++dc) {
                         double nd = std::sqrt(dr*dr*16.0 + dc*dc*1.0) / (rOut * 2.0);
-                        double ni = std::sqrt(dr*dr*16.0 + dc*dc*1.0) / (std::max(1, vr) * 2.0);
+                        double ni = std::sqrt(dr*dr*16.0 + dc*dc*1.0) / (std::max<long long>(1, vr) * 2.0);
                         if (nd <= 1.0 && ni > 1.0) {
                             if (rOut < 4 || (dr + dc) % 2 == 0) {
                                 renderer.putChar(c + dc, r + dr, '=', p->ringColor);

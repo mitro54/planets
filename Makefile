@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -O2 -Wall -Wextra -Wpedantic
+CXXFLAGS = -std=c++20 -O0 -march=i586 -Wall -Wextra -Wpedantic
 TARGET = planets
 SRCDIR = src
 SOURCES = $(wildcard $(SRCDIR)/*.cpp)
