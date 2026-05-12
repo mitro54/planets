@@ -218,7 +218,7 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
         std::string spdWarnColor = (totalSpd > 5.0) ? "\033[1;31m" : (totalSpd > 3.0) ? "\033[1;33m" : "\033[1;32m";
         ren.putString(0, 4, landHelp, spdWarnColor + C_HUD_BG);
     } else {
-        std::string help = " W:Thrust  A/D:Turn  S:Retro(Brake)  SPACE:Emergency Stop  T:Trail  L:Land  ESC:Quit";
+        std::string help = " W:Thrust  A/D:Turn  S:Retro(Brake)  SPACE:Emergency Stop  T:Trail +/-/Scroll:Zoom  L:Land  ESC:Quit";
         ren.putString(0, 4, help, C_HUD_DIM + C_HUD_BG);
     }
 
