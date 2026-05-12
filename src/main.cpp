@@ -130,7 +130,7 @@ static bool isWaterAt(double worldX, uint64_t seed) {
 // ─── HUD ─────────────────────────────────────────────────────
 static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
                     const ChunkManager& chunks, double nearestGrav, double fps,
-                    bool trailOn, GameState state, bool canLand) {
+                    bool trailOn, GameState state, bool canLand, bool simulationStarted) {
     int w = ren.getCols();
     for (int r = 0; r < HUD_ROWS && r < ren.getRows(); ++r)
         for (int c = 0; c < w; ++c)
@@ -181,6 +181,8 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
         ren.putString(0, 0, " [WORMHOLE TRAVERSAL] ", "\033[1;35m" + C_HUD_BG);
     } else if (canLand) {
         ren.putString(0, 0, " >>> PRESS L TO LAND <<< ", "\033[1;32m" + C_HUD_BG);
+    } else if (!simulationStarted && state == GameState::ORBIT) {
+        ren.putString(0, 0, " [SYSTEMS OFFLINE - PRESS ANY THRUST KEY TO ENGAGE] ", "\033[1;36m" + C_HUD_BG);
     }
 
     // Row 3: Chunk + Gravity + Trail
@@ -226,8 +228,10 @@ int main() {
     cam.zoom = 0.5;
 
     Entity ship;
-    ship.x = 100.0;
-    ship.y = 100.0;
+    std::mt19937_64 startupRng(std::chrono::steady_clock::now().time_since_epoch().count());
+    std::uniform_real_distribution<double> startDist(-50000.0, 50000.0);
+    ship.x = startDist(startupRng);
+    ship.y = startDist(startupRng);
     ship.angle = M_PI / 2.0;
 
     ChunkManager chunks;
@@ -244,6 +248,7 @@ int main() {
     InputState input;
     bool running = true;
     bool trailOn = true;  // trajectory trail enabled by default
+    bool simulationStarted = false; 
     std::deque<TrailPoint> trail;
     int trailTick = 0;
     double simTime = 0.0;
@@ -388,6 +393,10 @@ int main() {
         if (input.isRotL(inputNow)) ship.angularVel += Physics::ROTATION_SPEED;
         if (input.isRotR(inputNow)) ship.angularVel -= Physics::ROTATION_SPEED;
 
+        if (!simulationStarted && (ship.thrusting || ship.retrograde || ship.angularVel != 0.0)) {
+            simulationStarted = true;
+        }
+
         auto [cols, rows] = term.getSize();
 
         // ─── Physics ────────────────────────────────
@@ -506,6 +515,11 @@ int main() {
                     ship.y += dist(rng);
                     trail.clear();
                 }
+            }
+
+            if (!simulationStarted && state == GameState::ORBIT) {
+                // Keep ship stationary until pilot starts engines
+                ship.vx = 0; ship.vy = 0;
             }
 
             accumulator -= FIXED_DT;
@@ -846,7 +860,7 @@ int main() {
                 }
             }
         }
-        drawHUD(renderer, ship, cam, chunks, nearestGrav, currentFps, trailOn, state, canLand);
+        drawHUD(renderer, ship, cam, chunks, nearestGrav, currentFps, trailOn, state, canLand, simulationStarted);
         renderer.flush();
 
         // Frame limit
