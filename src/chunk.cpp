@@ -149,6 +149,21 @@ void ChunkManager::generateChunk(ChunkCoord coord) {
             }
         }
 
+        p.id = std::to_string(static_cast<int64_t>(p.x)) + "_" + std::to_string(static_cast<int64_t>(p.y));
+
+        // 5% chance to be a Black Hole
+        std::uniform_int_distribution<int> bhChance(0, 100);
+        if (bhChance(rng) < 5) {
+            p.isBlackHole = true;
+            p.radius = p.radius * 0.5; // Event horizon is smaller
+            p.mass = p.mass * 100.0; // Extreme gravity
+            p.symbol = ' '; // Void
+            p.hasRings = true;
+            p.ringWidth = p.radius * 2.0; // Accretion disk
+            p.ringColor = "\033[1;35m"; // Bright magenta accretion disk
+            p.moons.clear(); // Black holes consume moons!
+        }
+
         chunk.planets.push_back(p);
     }
 

@@ -11,6 +11,10 @@
 #include <string>
 #include <algorithm>
 #include <deque>
+#include <unordered_set>
+#include <random>
+
+enum class GameState { ORBIT, LANDING, WORMHOLE_CUTSCENE, GAME_OVER };
 
 // ─── Colors ──────────────────────────────────────────────────
 static const std::string C_HUD_LBL = "\033[1;37m";
@@ -75,10 +79,58 @@ struct TrailPoint { double x, y; };
 static constexpr int MAX_TRAIL = 500;
 static constexpr int TRAIL_INTERVAL = 3; // record every N physics ticks
 
+// ─── Terrain generation for landing ─────────────────────────
+static uint64_t terrainHash(int64_t x, uint64_t seed) {
+    uint64_t h = static_cast<uint64_t>(x) * 2654435761ULL ^ seed;
+    h = (h ^ (h >> 13)) * 1274126177ULL;
+    return h ^ (h >> 16);
+}
+
+static double terrainHeightAt(double worldX, uint64_t seed) {
+    auto noise = [&](double x, double freq, double amp) {
+        int64_t b = (int64_t)std::floor(x * freq);
+        double t = (x * freq) - b;
+        double h0 = (double)(terrainHash(b, seed) % 1000) / 1000.0;
+        double h1 = (double)(terrainHash(b + 1, seed) % 1000) / 1000.0;
+        t = t * t * (3.0 - 2.0 * t); // smoothstep
+        return (h0 * (1.0 - t) + h1 * t) * amp;
+    };
+    
+    double h = noise(worldX, 0.04, 15.0);  // Large scale geography (hills/valleys)
+    h += noise(worldX, 0.2, 3.0);         // Mid scale (ridges)
+    h += noise(worldX, 1.2, 0.6);         // Small scale (rocks/roughness)
+    return h;
+}
+
+static double getSeaLevel(uint64_t seed) {
+    uint64_t trait = terrainHash(0, seed ^ 0xDEADBEEF);
+    if (trait % 11 == 0) return 6.5; // Water world: high sea level
+    if (trait % 7 == 0) return -5.0; // Desert planet: no water
+    return 2.5; // Standard sea level
+}
+
+static bool isWaterAt(double worldX, uint64_t seed) {
+    // Water regions defined by low-freq humidity noise
+    int64_t b = (int64_t)std::floor(worldX / 40.0); 
+    double t = (worldX / 40.0) - b;
+    double w0 = (double)(terrainHash(b, seed ^ 0x123) % 100);
+    double w1 = (double)(terrainHash(b + 1, seed ^ 0x123) % 100);
+    t = t * t * (3.0 - 2.0 * t);
+    double humidity = (w0 * (1.0 - t) + w1 * t);
+    
+    uint64_t trait = terrainHash(0, seed ^ 0xDEADBEEF);
+    double threshold = (trait % 7 == 0) ? 85.0 : (trait % 11 == 0) ? 10.0 : 45.0;
+    
+    double sl = getSeaLevel(seed);
+    double h = terrainHeightAt(worldX, seed);
+    // Water exists only below sea level in humid regions
+    return (h < sl) && (humidity > threshold);
+}
+
 // ─── HUD ─────────────────────────────────────────────────────
 static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
                     const ChunkManager& chunks, double nearestGrav, double fps,
-                    bool trailOn) {
+                    bool trailOn, GameState state, bool canLand) {
     int w = ren.getCols();
     for (int r = 0; r < HUD_ROWS && r < ren.getRows(); ++r)
         for (int c = 0; c < w; ++c)
@@ -94,27 +146,74 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
     std::string vel = "Vx:" + fmt("%.2f", ship.vx) + " Vy:" + fmt("%.2f", ship.vy) + " km/s ";
     ren.putString(std::max(0, w - (int)vel.size()), 1, vel, C_HUD_LBL + C_HUD_BG);
 
-    // Row 2: Speed + Angle + Zoom
+    // Row 2: Speed + Angle + Fuel
     double spd = Physics::speed(ship);
     double deg = ship.angle * 180.0 / M_PI;
     std::string r2 = " SPD:" + fmt("%.1f", spd) + " km/s  ANG:" + fmt("%.0f", deg) + "\xC2\xB0";
+    
+    // Fuel gauge (split-color: orange bars, dim empty)
+    int fuelBars = static_cast<int>((ship.fuel / ship.maxFuel) * 10.0);
+    std::string fuelLabel = "  FUEL:";
+    r2 += fuelLabel;
     ren.putString(0, 2, r2, C_HUD_VAL + C_HUD_BG);
+    int fuelStartCol = (int)r2.size();
+    // Determine fuel bar color based on level
+    std::string fuelColor = (fuelBars > 6) ? "\033[38;5;208m" : (fuelBars > 3) ? "\033[38;5;214m" : "\033[1;31m";
+    std::string emptyColor = "\033[38;5;240m";
+    ren.putChar(fuelStartCol, 2, '[', C_HUD_VAL + C_HUD_BG);
+    for (int i = 0; i < 10; ++i) {
+        if (i < fuelBars)
+            ren.putChar(fuelStartCol + 1 + i, 2, '|', fuelColor + C_HUD_BG);
+        else
+            ren.putChar(fuelStartCol + 1 + i, 2, '.', emptyColor + C_HUD_BG);
+    }
+    ren.putChar(fuelStartCol + 11, 2, ']', C_HUD_VAL + C_HUD_BG);
+
     std::string zm = "ZOOM:" + fmt("%.2f", cam.zoom) + "x ";
     ren.putString(std::max(0, w - (int)zm.size()), 2, zm, C_HUD_VAL + C_HUD_BG);
 
+    // Add state indicator to row 0 if not ORBIT
+    if (state == GameState::LANDING) {
+        ren.putString(0, 0, " [LANDING MODE] ", "\033[1;31m" + C_HUD_BG);
+    } else if (state == GameState::GAME_OVER) {
+        ren.putString(0, 0, " [GAME OVER - PRESS R TO RETRY] ", "\033[1;31m" + C_HUD_BG);
+    } else if (state == GameState::WORMHOLE_CUTSCENE) {
+        ren.putString(0, 0, " [WORMHOLE TRAVERSAL] ", "\033[1;35m" + C_HUD_BG);
+    } else if (canLand) {
+        ren.putString(0, 0, " >>> PRESS L TO LAND <<< ", "\033[1;32m" + C_HUD_BG);
+    }
+
     // Row 3: Chunk + Gravity + Trail
     auto cc = ChunkManager::worldToChunk(ship.x, ship.y);
+    double gForce = nearestGrav / 1.0; // 1.0 km/s² is our baseline "1G"
     std::string r3 = " CHUNK:[" + fmtI(cc.cx) + "," + fmtI(cc.cy) + "]"
-                   + " GRAV:" + fmt("%.2f", nearestGrav)
+                   + " GRAV:" + fmt("%.2f", nearestGrav) + "km/s\xC2\xB2 (" + fmt("%.1f", gForce) + "G)"
                    + " PLANETS:" + std::to_string(chunks.totalPlanets())
                    + (trailOn ? " [TRAIL]" : "");
     ren.putString(0, 3, r3, C_HUD_LBL + C_HUD_BG);
     std::string fp = "FPS:" + fmt("%.0f", fps) + " ";
     ren.putString(std::max(0, w - (int)fp.size()), 3, fp, C_HUD_VAL + C_HUD_BG);
 
-    // Row 4: Controls bar
-    std::string help = " Q/W/E:Thrust+Turn  A/D:Turn  Z/S/C:Retro+Turn  SPACE:Stop  T:Trail  ESC:Quit";
-    ren.putString(0, 4, help, C_HUD_DIM + C_HUD_BG);
+    // Row 4: Controls bar (context-sensitive)
+    if (state == GameState::LANDING) {
+        // Landing telemetry
+        std::string alt = " ALT:" + fmt("%.1f", ship.y) + "km";
+        std::string vspd = "  V/SPD:" + fmt("%.2f", ship.vy) + "km/s";
+        std::string hspd = "  H/SPD:" + fmt("%.2f", ship.vx) + "km/s";
+        double adeg = ship.angle * 180.0 / M_PI;
+        adeg = std::fmod(adeg, 360.0);
+        if (adeg < 0) adeg += 360.0;
+        bool ok = (adeg > 60.0 && adeg < 120.0);
+        std::string tilt = ok ? "  TILT:OK" : "  TILT:BAD";
+        double totalSpd = Physics::speed(ship);
+        std::string spdWarn = (totalSpd > 5.0) ? "  [TOO FAST!]" : (totalSpd > 3.0) ? "  [CAUTION]" : "  [SAFE]";
+        std::string landHelp = alt + vspd + hspd + tilt + spdWarn;
+        std::string spdWarnColor = (totalSpd > 5.0) ? "\033[1;31m" : (totalSpd > 3.0) ? "\033[1;33m" : "\033[1;32m";
+        ren.putString(0, 4, landHelp, spdWarnColor + C_HUD_BG);
+    } else {
+        std::string help = " Q/W/E:Thrust+Turn  A/D:Turn  Z/S/C:Retro+Turn  SPACE:Stop  T:Trail  L:Land  ESC:Quit";
+        ren.putString(0, 4, help, C_HUD_DIM + C_HUD_BG);
+    }
 }
 
 // ─── MAIN ────────────────────────────────────────────────────
@@ -148,6 +247,13 @@ int main() {
     std::deque<TrailPoint> trail;
     int trailTick = 0;
     double simTime = 0.0;
+    
+    GameState state = GameState::ORBIT;
+    std::unordered_set<std::string> visitedPlanets;
+    const Planet* landingPlanet = nullptr;
+    double landingY = 0.0;
+    double cutsceneTimer = 0.0;
+    uint64_t landingSeed = 0;
 
     while (running) {
         auto now = Clock::now();
@@ -205,9 +311,72 @@ int main() {
                 case 'x': case 'X':
                     trail.clear(); break;  // clear trail without toggling
                 case '+': case '=': case Terminal::KEY_SCROLL_UP:
-                    cam.zoom = std::min(cam.zoom * 1.15, 10.0); break;
+                    if (state == GameState::ORBIT) { cam.zoom = std::min(cam.zoom * 1.15, 10.0); } break;
                 case '-': case '_': case Terminal::KEY_SCROLL_DN:
-                    cam.zoom = std::max(cam.zoom / 1.15, 0.01); break;
+                    if (state == GameState::ORBIT) { cam.zoom = std::max(cam.zoom / 1.15, 0.01); } break;
+                
+                case 'l': case 'L':
+                    if (state == GameState::ORBIT) {
+                        // Find closest planet
+                        const auto& planets = chunks.getActivePlanets();
+                        for (const Planet* p : planets) {
+                            if (p->isBlackHole) continue;
+                            double dist = std::sqrt(std::pow(p->x - ship.x, 2) + std::pow(p->y - ship.y, 2));
+                            if (dist < p->radius * 1.5 + 50.0) { // Close enough to land
+                                state = GameState::LANDING;
+                                landingPlanet = p;
+                                landingY = 50.0; // Start 50km above surface (always visible)
+                                landingSeed = static_cast<uint64_t>(p->x * 1000) ^ static_cast<uint64_t>(p->y * 7919);
+                                
+                                // Map velocities relative to planet (simplified)
+                                // Tangential becomes vx, radial becomes vy (falling)
+                                double dx = ship.x - p->x;
+                                double dy = ship.y - p->y;
+                                double pAng = std::atan2(dy, dx);
+                                
+                                double speed = Physics::speed(ship);
+                                double velAng = std::atan2(ship.vy, ship.vx);
+                                
+                                // Clamp entry velocity to something survivable-ish
+                                if (speed > 8.0) speed = 8.0;
+                                
+                                // Approximate mapping for 2D minigame
+                                double diffAng = velAng - pAng;
+                                ship.vx = speed * std::sin(diffAng) * 0.3; // Horizontal along surface (damped)
+                                ship.vy = -std::abs(speed * std::cos(diffAng)) * 0.3; // Vertical towards surface (damped)
+                                ship.x = 0; // Center ship horizontally
+                                ship.y = landingY;
+                                
+                                // Preserve approach angle: derive from mapped velocity
+                                // If entering mostly sideways, ship will be tilted
+                                if (std::abs(ship.vx) > 0.01 || std::abs(ship.vy) > 0.01) {
+                                    ship.angle = std::atan2(ship.vy, ship.vx) + M_PI; // Point opposite to velocity
+                                    // Bias towards upright — blend 60% velocity angle, 40% upright
+                                    double uprightAngle = M_PI / 2.0;
+                                    ship.angle = ship.angle * 0.6 + uprightAngle * 0.4;
+                                } else {
+                                    ship.angle = M_PI / 2.0;
+                                }
+                                trail.clear();
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                case 'r': case 'R':
+                    if (state == GameState::GAME_OVER) {
+                        // Respawn
+                        if (ship.fuel <= 0.0) ship.fuel = ship.maxFuel; // Only refill if out of fuel
+                        ship.vx = 0; ship.vy = 0;
+                        ship.angle = M_PI / 2.0;
+                        state = GameState::ORBIT;
+                        if (landingPlanet) {
+                            ship.x = landingPlanet->x + landingPlanet->radius * 1.5;
+                            ship.y = landingPlanet->y;
+                            landingPlanet = nullptr;
+                        }
+                    }
+                    break;
             }
         }
 
@@ -223,23 +392,119 @@ int main() {
 
         // ─── Physics ────────────────────────────────
         while (accumulator >= FIXED_DT) {
-            chunks.update(ship.x, ship.y, cam.zoom, cols, rows);
+            if (state == GameState::ORBIT) {
+                chunks.update(ship.x, ship.y, cam.zoom, cols, rows);
 
-            const auto& planets = chunks.getActivePlanets();
-            for (const Planet* p : planets)
-                Physics::applyGravity(ship, p->x, p->y, p->mass, p->radius, FIXED_DT);
+                const auto& planets = chunks.getActivePlanets();
+                for (const Planet* p : planets) {
+                    Physics::applyGravity(ship, p->x, p->y, p->mass, p->radius, FIXED_DT);
+                    
+                    if (p->isBlackHole) {
+                        double dist = std::sqrt(std::pow(p->x - ship.x, 2) + std::pow(p->y - ship.y, 2));
+                        if (dist < p->radius * 0.8) { // Event horizon
+                            state = GameState::WORMHOLE_CUTSCENE;
+                            cutsceneTimer = 2.0; 
+                            break;
+                        }
+                    }
+                }
+                
+                if (ship.thrusting)  Physics::applyThrust(ship, FIXED_DT);
+                if (ship.retrograde) Physics::applyRetrograde(ship, FIXED_DT);
+                Physics::integrate(ship, FIXED_DT);
 
-            if (ship.thrusting)  Physics::applyThrust(ship, FIXED_DT);
-            if (ship.retrograde) Physics::applyRetrograde(ship, FIXED_DT);
-            Physics::integrate(ship, FIXED_DT);
+                // Record trail
+                if (trailOn) {
+                    if (++trailTick >= TRAIL_INTERVAL) {
+                        trailTick = 0;
+                        trail.push_back({ship.x, ship.y});
+                        if ((int)trail.size() > MAX_TRAIL)
+                            trail.pop_front();
+                    }
+                }
+            } else if (state == GameState::LANDING) {
+                // Landing Physics
+                double tHeight = terrainHeightAt(ship.x, landingSeed);
+                double gRaw = Physics::GAME_G * landingPlanet->mass / std::max(0.001, std::pow(landingPlanet->radius, 2));
+                double g = std::min(gRaw, Physics::THRUST_ACCEL * 0.6);
+                
+                // Gravity applies if above terrain
+                if (ship.y > tHeight) {
+                    ship.vy -= g * FIXED_DT;
+                }
+                
+                if (ship.thrusting)  Physics::applyThrust(ship, FIXED_DT);
+                if (ship.retrograde) Physics::applyRetrograde(ship, FIXED_DT);
+                Physics::integrate(ship, FIXED_DT);
+                
+                // Check if we exited atmosphere (Takeoff)
+                if (ship.y > landingY * 1.2) {
+                    state = GameState::ORBIT;
+                    std::mt19937_64 rng(landingSeed);
+                    double escapeAngle = std::uniform_real_distribution<double>(0, 2*M_PI)(rng);
+                    ship.x = landingPlanet->x + std::cos(escapeAngle) * landingPlanet->radius * 1.5;
+                    ship.y = landingPlanet->y + std::sin(escapeAngle) * landingPlanet->radius * 1.5;
+                    ship.vx = std::cos(escapeAngle) * 5.0; 
+                    ship.vy = std::sin(escapeAngle) * 5.0;
+                    cam.zoom = 0.5;
+                    // Skip remaining landing-specific checks this frame
+                }
 
-            // Record trail
-            if (trailOn) {
-                if (++trailTick >= TRAIL_INTERVAL) {
-                    trailTick = 0;
-                    trail.push_back({ship.x, ship.y});
-                    if ((int)trail.size() > MAX_TRAIL)
-                        trail.pop_front();
+                if (state == GameState::LANDING) {
+                    tHeight = terrainHeightAt(ship.x, landingSeed);
+                    bool water = isWaterAt(ship.x, landingSeed);
+                    double sl = getSeaLevel(landingSeed);
+                    double effectiveTHeight = water ? sl : tHeight;
+                    
+                    if (ship.y <= effectiveTHeight) {
+                        if (ship.vy < 0) { 
+                            double crashSpeed = Physics::speed(ship);
+                            double deg = ship.angle * 180.0 / M_PI;
+                            deg = std::fmod(deg, 360.0);
+                            if (deg < 0) deg += 360.0;
+                            
+                            bool upright = (deg > 60.0 && deg < 120.0);
+                            
+                            if (crashSpeed > 5.0 || !upright || water) {
+                                state = GameState::GAME_OVER;
+                            } else {
+                                ship.y = effectiveTHeight;
+                                ship.vx = 0; ship.vy = 0;
+                                ship.angle = M_PI / 2.0;
+                                if (!visitedPlanets.count(landingPlanet->id)) {
+                                    visitedPlanets.insert(landingPlanet->id);
+                                    ship.fuel = ship.maxFuel;
+                                }
+                            }
+                        } else {
+                            if (ship.y < effectiveTHeight) ship.y = effectiveTHeight;
+                        }
+                    }
+                }
+
+                // Global Fuel Check
+                if (ship.fuel <= 0) {
+                    state = GameState::GAME_OVER;
+                }
+            } else if (state == GameState::WORMHOLE_CUTSCENE) {
+                cutsceneTimer -= FIXED_DT;
+                if (cutsceneTimer <= 0) {
+                    // Teleport
+                    state = GameState::ORBIT;
+                    
+                    // Dampen extreme speeds gained from black hole gravity to a manageable 150 km/s
+                    double spd = Physics::speed(ship);
+                    if (spd > 150.0) {
+                        double scale = 150.0 / spd;
+                        ship.vx *= scale;
+                        ship.vy *= scale;
+                    }
+
+                    std::mt19937_64 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+                    std::uniform_real_distribution<double> dist(-100000.0, 100000.0);
+                    ship.x += dist(rng);
+                    ship.y += dist(rng);
+                    trail.clear();
                 }
             }
 
@@ -257,7 +522,11 @@ int main() {
 
         int viewH = rows - HUD_ROWS;
 
-        // Nebulae (Background)
+        // ─── Rendering based on State ───────────────
+        double nearestGrav = 0.0;
+
+        if (state == GameState::ORBIT || state == GameState::GAME_OVER) {
+            // Nebulae (Background)
         const auto& nebulae = chunks.getActiveNebulae();
         for (const Nebula* n : nebulae) {
             auto sp = cam.worldToScreenRaw(n->x, n->y, cols, viewH);
@@ -341,7 +610,6 @@ int main() {
 
         // Planets, rings, and moons
         const auto& planets = chunks.getActivePlanets();
-        double nearestGrav = 0.0;
         for (const Planet* p : planets) {
             double dx = p->x - ship.x, dy = p->y - ship.y;
             double dist = std::sqrt(dx*dx + dy*dy);
@@ -356,6 +624,42 @@ int main() {
 
             ScreenPos sp = cam.worldToScreenRaw(p->x, p->y, cols, viewH);
             int r = sp.row + HUD_ROWS, c = sp.col;
+
+            // ─── Special: Black Hole / Wormhole Rendering ───
+            if (p->isBlackHole) {
+                int vr = std::max(0, static_cast<int>(p->radius * cam.zoom / 2.0));
+                int rOut = std::max(vr + 1, static_cast<int>((p->radius + p->ringWidth) * cam.zoom / 2.0));
+                
+                if (rOut < 1) {
+                    // Far away: just a tiny swirling point
+                    char s = (static_cast<int>(simTime * 10) % 2 == 0) ? '*' : '+';
+                    renderer.putChar(c, r, s, "\033[1;35m");
+                } else {
+                    for (int dr = -rOut; dr <= rOut; ++dr) {
+                        for (int dc = -rOut * 2; dc <= rOut * 2; ++dc) {
+                            double d = std::sqrt(dr*dr*4.0 + dc*dc*1.0) / (rOut * 2.0);
+                            double inside = std::sqrt(dr*dr*4.0 + dc*dc*1.0) / (std::max(0.8, (double)vr) * 2.0);
+                            
+                            if (d <= 1.0) {
+                                if (inside <= 1.0) {
+                                    // Event Horizon (Pitch Black)
+                                    renderer.putChar(c + dc, r + dr, ' ', "\033[48;5;232m");
+                                } else {
+                                    // Accretion Disk (Swirling energy)
+                                    double ang = std::atan2(dr, dc/2.0) + simTime * 8.0;
+                                    char swirls[] = {'/', '-', '\\', '|'};
+                                    int sIdx = static_cast<int>(std::abs(ang * 4 / M_PI)) % 4;
+                                    const char* diskColors[] = {"\033[1;35m", "\033[1;36m", "\033[1;37m", "\033[38;5;93m"};
+                                    int cIdx = (static_cast<int>(d * 4 + simTime * 2)) % 4;
+                                    renderer.putChar(c + dc, r + dr, swirls[sIdx], diskColors[cIdx]);
+                                }
+                            }
+                        }
+                    }
+                }
+                continue; // Done with this object
+            }
+
             int vr = std::max(0, static_cast<int>(p->radius * cam.zoom / 2.0));
 
             // Back half of rings
@@ -419,14 +723,130 @@ int main() {
                 }
             }
         }
+        } else if (state == GameState::LANDING) {
+            // Surface gravity for HUD display
+            double gRaw = Physics::GAME_G * landingPlanet->mass / std::max(0.001, std::pow(landingPlanet->radius, 2));
+            nearestGrav = std::min(gRaw, Physics::THRUST_ACCEL * 0.6);
+
+            // Stars in background
+            std::mt19937_64 rng(1337);
+            for (int i=0; i<50; ++i) {
+                int sc = rng() % cols;
+                int sr = rng() % viewH;
+                renderer.putChar(sc, sr + HUD_ROWS, '.', "\033[38;5;238m");
+            }
+
+            // Dynamic zoom
+            double altFraction = std::max(0.0, ship.y / landingY);
+            double zoomFactor = 1.0 + (1.0 - altFraction) * 2.0;
+
+            int groundScreenRow = viewH - (viewH / 7);
+            double viewRangeKm = landingY / zoomFactor;
+            double kmPerRow = viewRangeKm / (double)(groundScreenRow - viewH / 2);
+            if (kmPerRow < 0.1) kmPerRow = 0.1;
+            double kmPerCol = kmPerRow * 0.5; // Aspect ratio: chars are tall
+            
+            int shipScreenRow = groundScreenRow - (int)(ship.y / kmPerRow) - 1;
+            int shipScreenCol = cols / 2; 
+            
+            // Draw altitude markers
+            int markerStep = (landingY > 30) ? 10 : 5;
+            for (int alt = markerStep; alt <= (int)landingY; alt += markerStep) {
+                int markerRow = groundScreenRow - (int)((double)alt / kmPerRow);
+                if (markerRow >= 0 && markerRow < viewH) {
+                    std::string label = std::to_string(alt) + "km";
+                    int labelCol = cols - (int)label.size() - 1;
+                    if (labelCol > 0) {
+                        for (int ci = 0; ci < cols - (int)label.size() - 2; ci += 4)
+                            renderer.putChar(ci, markerRow + HUD_ROWS, '-', "\033[38;5;236m");
+                        for (int ci = 0; ci < (int)label.size(); ++ci)
+                            renderer.putChar(labelCol + ci, markerRow + HUD_ROWS, label[ci], "\033[38;5;240m");
+                    }
+                }
+            }
+
+            // Draw terrain with variable height, cliffs, and level water
+            double sl = getSeaLevel(landingSeed);
+            for (int c = 0; c < cols; ++c) {
+                double worldX = (c - cols / 2) * kmPerCol + ship.x;
+                
+                double tH = terrainHeightAt(worldX, landingSeed);
+                bool water = isWaterAt(worldX, landingSeed);
+                double effectiveH = water ? sl : tH;
+                int surfRow = groundScreenRow - (int)(effectiveH / kmPerRow);
+                
+                if (surfRow >= 0 && surfRow < viewH) {
+                    if (water) {
+                        char wChar = ((c + (int)(simTime * 3)) % 3 == 0) ? '~' : '-';
+                        renderer.putChar(c, surfRow + HUD_ROWS, wChar, "\033[1;34m"); 
+                        for (int r = surfRow + 1; r < viewH; ++r)
+                            renderer.putChar(c, r + HUD_ROWS, '~', "\033[38;5;17m"); 
+                    } else {
+                        uint64_t th = terrainHash((int64_t)(worldX * 10), landingSeed ^ 0xFACE);
+                        char surfChar = ((th % 7 == 0) ? '^' : (th % 3 == 0) ? '~' : '=');
+                        renderer.putChar(c, surfRow + HUD_ROWS, surfChar, landingPlanet->color);
+                        for (int r = surfRow + 1; r < viewH; ++r) {
+                            uint64_t dh = static_cast<uint64_t>(c * 31 + r * 97) ^ 0xBEEF;
+                            char dirtChar = ((dh % 5 == 0) ? '.' : (dh % 7 == 0) ? ',' : '#');
+                            renderer.putChar(c, r + HUD_ROWS, dirtChar, landingPlanet->color2);
+                        }
+                    }
+                }
+            }
+
+            // Draw ship at screen center
+            if (shipScreenRow >= 0 && shipScreenRow < viewH) {
+                const char* sg = shipGlyph(ship.angle);
+                renderer.putGlyph(shipScreenCol, shipScreenRow + HUD_ROWS, sg, ship.thrusting ? C_THRUST : C_SHIP);
+            }
+        } else if (state == GameState::WORMHOLE_CUTSCENE) {
+            // Radiating stars effect
+            double progress = 1.0 - (cutsceneTimer / 2.0); // 0.0 to 1.0
+            int cx = cols / 2;
+            int cy = viewH / 2;
+            std::mt19937_64 rng(static_cast<uint64_t>(simTime * 100)); // Fast changing seed
+            for (int i=0; i<100; ++i) {
+                double ang = std::uniform_real_distribution<double>(0, 2*M_PI)(rng);
+                double rad = std::uniform_real_distribution<double>(0.1, 1.0)(rng) * std::max(cols, viewH) * progress;
+                int sc = cx + (int)(std::cos(ang) * rad);
+                int sr = cy + (int)(std::sin(ang) * rad);
+                if (sc >= 0 && sc < cols && sr >= 0 && sr < viewH) {
+                    renderer.putChar(sc, sr + HUD_ROWS, '*', "\033[1;35m"); // Magenta streaks
+                }
+            }
+            // Event horizon void
+            for (int dr = -2; dr <= 2; ++dr) {
+                for (int dc = -4; dc <= 4; ++dc) {
+                    if (dr*dr*4 + dc*dc <= 16) {
+                        renderer.putChar(cx + dc, cy + dr + HUD_ROWS, ' ', C_HUD_BG);
+                    }
+                }
+            }
+        }
+
 
         // ─── Ship: Unicode arrow ────────────────────
-        int shipCol = cols / 2;
-        int shipRow = HUD_ROWS + viewH / 2;
-        const char* sg = shipGlyph(ship.angle);
-        renderer.putGlyph(shipCol, shipRow, sg, ship.thrusting ? C_THRUST : C_SHIP);
+        if (state != GameState::WORMHOLE_CUTSCENE && state != GameState::LANDING) {
+            int shipCol = cols / 2;
+            int shipRow = HUD_ROWS + viewH / 2;
+            const char* sg = shipGlyph(ship.angle);
+            renderer.putGlyph(shipCol, shipRow, sg, ship.thrusting ? C_THRUST : C_SHIP);
+        }
 
-        drawHUD(renderer, ship, cam, chunks, nearestGrav, currentFps, trailOn);
+        // Check if we can land on any nearby planet (for HUD indicator)
+        bool canLand = false;
+        if (state == GameState::ORBIT) {
+            const auto& allPlanets = chunks.getActivePlanets();
+            for (const Planet* p : allPlanets) {
+                if (p->isBlackHole) continue;
+                double dist = std::sqrt(std::pow(p->x - ship.x, 2) + std::pow(p->y - ship.y, 2));
+                if (dist < p->radius * 1.5 + 50.0) {
+                    canLand = true;
+                    break;
+                }
+            }
+        }
+        drawHUD(renderer, ship, cam, chunks, nearestGrav, currentFps, trailOn, state, canLand);
         renderer.flush();
 
         // Frame limit

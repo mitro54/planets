@@ -13,6 +13,8 @@ struct Entity {
     double angularVel = 0.0;        // rad/s
     bool thrusting = false;
     bool retrograde = false;        // thrusting against velocity (realistic braking)
+    double maxFuel = 1200.0;
+    double fuel = 1200.0;
 };
 
 namespace Physics {
@@ -20,6 +22,7 @@ namespace Physics {
     constexpr double GAME_G         = 40.0;
     constexpr double THRUST_ACCEL   = 6.0;      // low thrust, slingshots matter
     constexpr double ROTATION_SPEED = 3.5;      // rad/s
+    constexpr double BURN_RATE      = 15.0;     // fuel per second while thrusting
 
     // No BRAKE_FACTOR — space has no friction!
 

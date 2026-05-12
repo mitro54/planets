@@ -3,15 +3,24 @@
 namespace Physics {
 
 void applyThrust(Entity& e, double dt) {
+    if (e.fuel <= 0.0) return;
+    e.fuel -= BURN_RATE * dt;
+    if (e.fuel < 0.0) e.fuel = 0.0;
+    
     // F = m*a along heading direction
     e.vx += THRUST_ACCEL * std::cos(e.angle) * dt;
     e.vy += THRUST_ACCEL * std::sin(e.angle) * dt;
 }
 
 void applyRetrograde(Entity& e, double dt) {
+    if (e.fuel <= 0.0) return;
+    
     // Realistic braking: thrust opposite to current velocity direction
     double spd = speed(e);
     if (spd < 0.001) return; // already stopped
+
+    e.fuel -= BURN_RATE * dt;
+    if (e.fuel < 0.0) e.fuel = 0.0;
 
     // Direction of velocity
     double vAngle = std::atan2(e.vy, e.vx);
