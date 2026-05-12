@@ -127,7 +127,7 @@ static bool isWaterAt(double worldX, uint64_t seed) {
 // ─── HUD ─────────────────────────────────────────────────────
 static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
                     double nearestGrav, double fps, GameState state, 
-                    bool canLand, bool simulationStarted) {
+                    bool canLand, bool simulationStarted, size_t score) {
     int w = ren.getCols();
     for (int r = 0; r < HUD_ROWS && r < ren.getRows(); ++r)
         for (int c = 0; c < w; ++c)
@@ -221,6 +221,11 @@ static void drawHUD(Renderer& ren, const Entity& ship, const Camera& cam,
         std::string help = " W:Thrust  A/D:Turn  S:Retro(Brake)  SPACE:Emergency Stop  T:Trail  L:Land  ESC:Quit";
         ren.putString(0, 4, help, C_HUD_DIM + C_HUD_BG);
     }
+
+    // Row 4: Score (Right-aligned, under Zoom)
+    std::string scoreVal = std::to_string(score);
+    ren.putString(w - 11, 4, "LANDS:", C_HUD_LBL + C_HUD_BG);
+    ren.putString(w - 5, 4, scoreVal, C_HUD_VAL + C_HUD_BG);
 }
 
 // ─── MAIN ────────────────────────────────────────────────────
@@ -293,22 +298,32 @@ int main() {
                 case 'w': case 'W': case Terminal::KEY_UP:
                     input.thrust = inputNow; break;
                 case 'q': case 'Q':
-                    input.thrust = inputNow; input.rotL = inputNow; break;
+                    input.thrust = inputNow; 
+                    ship.angle = Physics::normalizeAngle(ship.angle + M_PI / 4.0);
+                    input.rotL = inputNow; break;
                 case 'e': case 'E':
-                    input.thrust = inputNow; input.rotR = inputNow; break;
+                    input.thrust = inputNow; 
+                    ship.angle = Physics::normalizeAngle(ship.angle - M_PI / 4.0);
+                    input.rotR = inputNow; break;
                 
                 // Retrograde + Combos
                 case 's': case 'S': case Terminal::KEY_DOWN:
                     input.retro = inputNow; break;
                 case 'z': case 'Z':
-                    input.retro = inputNow; input.rotL = inputNow; break;
+                    input.retro = inputNow; 
+                    ship.angle = Physics::normalizeAngle(ship.angle + M_PI / 4.0);
+                    input.rotL = inputNow; break;
                 case 'c': case 'C':
-                    input.retro = inputNow; input.rotR = inputNow; break;
+                    input.retro = inputNow; 
+                    ship.angle = Physics::normalizeAngle(ship.angle - M_PI / 4.0);
+                    input.rotR = inputNow; break;
 
                 // Pure Turning
                 case 'a': case 'A': case Terminal::KEY_LEFT:
+                    ship.angle = Physics::normalizeAngle(ship.angle + M_PI / 4.0);
                     input.rotL = inputNow; break;
                 case 'd': case 'D': case Terminal::KEY_RIGHT:
+                    ship.angle = Physics::normalizeAngle(ship.angle - M_PI / 4.0);
                     input.rotR = inputNow; break;
                 
                 // Utils
@@ -380,6 +395,7 @@ int main() {
                         ship.vx = 0; ship.vy = 0;
                         ship.angle = M_PI / 2.0;
                         state = GameState::ORBIT;
+                        visitedPlanets.clear(); // Reset score on game over
                         if (landingPlanet) {
                             ship.x = landingPlanet->x + landingPlanet->radius * 1.5;
                             ship.y = landingPlanet->y;
@@ -395,8 +411,10 @@ int main() {
         ship.thrusting  = input.isThrusting(inputNow);
         ship.retrograde = input.isRetrograde(inputNow);
         ship.angularVel = 0.0;
-        if (input.isRotL(inputNow)) ship.angularVel += Physics::ROTATION_SPEED;
-        if (input.isRotR(inputNow)) ship.angularVel -= Physics::ROTATION_SPEED;
+        
+        // Snap angle to 8-axis to prevent drift and ensure fixed directions
+        ship.angle = std::round(ship.angle / (M_PI / 4.0)) * (M_PI / 4.0);
+        ship.angle = Physics::normalizeAngle(ship.angle);
 
         if (!simulationStarted && (ship.thrusting || ship.retrograde || ship.angularVel != 0.0)) {
             simulationStarted = true;
@@ -865,7 +883,7 @@ int main() {
                 }
             }
         }
-        drawHUD(renderer, ship, cam, nearestGrav, currentFps, state, canLand, simulationStarted);
+        drawHUD(renderer, ship, cam, nearestGrav, currentFps, state, canLand, simulationStarted, visitedPlanets.size());
         renderer.flush();
 
         // Frame limit
